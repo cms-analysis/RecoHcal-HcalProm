@@ -3,7 +3,7 @@ from Tkinter import *
 import os
 import string
 
-def Helpwin(filename,usetext=0):
+def Helpwin(filename,usetext=0,title="Help Information"):
 
     # If usetext = 1, assume that 'filename' is actually a string
     # containing information to be displayed.
@@ -22,7 +22,7 @@ def Helpwin(filename,usetext=0):
         if usetext == 0:
             newwin.title(os.path.basename(filename))
         else:
-            newwin.title("DQMfromDBSgui Info")
+            newwin.title(title)
         text.delete('1.0',END)
         text.insert('1.0',helpfile)
         text.focus()
@@ -32,14 +32,14 @@ def Helpwin(filename,usetext=0):
         
         
         if string.find(os.path.basename(filename),"params.dat")>-1:
-            newwin.geometry('950x500+500+20')
+            newwin.geometry('950x500+20+300')
         else:
-            newwin.geometry('950x500+500+20')
+            newwin.geometry('950x500+20+300')
 
         if usetext == 0:
             newwin.title(os.path.basename(filename))
         else:
-            newwin.title("Help Information")
+            newwin.title(title)
         Button(newwin, text="Close", command=newwin.destroy).pack()
         ybar=Scrollbar(newwin)
         text=Text(newwin,relief=SUNKEN,bg="grey98")

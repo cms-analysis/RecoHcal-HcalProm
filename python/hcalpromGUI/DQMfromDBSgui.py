@@ -8,15 +8,25 @@
 #
 # by Jeff Temple (jtemple@fnal.gov)
 #
-# 5 May 2008
+# 7 May 2008
 #
 # GUI to automatically grab new runs from DBS
 # and run HCAL DQM on any newly-found runs
 #
-# v1.2 Beta version allows access from non-hcal DQMs
+# New version allows GUI use by non-HCAL DQMs
+#
 #################################################
 
 import sys
+import os # used for sending user commands
+base=os.popen2("echo $CMSSW_BASE")
+base=base[1].read()
+if len(base)<2:
+    print "No $CMSSW_BASE directory can be found."
+    print "Are you sure you've set up your CMSSW release area?"
+    sys.exit()
+                                                 
+
 try:
     from Tkinter import *
 except:
@@ -30,13 +40,14 @@ except:
 import tkMessageBox # for displaying warning messages
 
 import thread # used for automated checking; may not be necessary
-import os
 import time # use to determine when to check for files
 import cPickle # stores file information
 import python_dbs # use for "sendmessage" function to get info from DBS
-import string
-import helpfunctions
+import string # DBS output parsing
+import helpfunctions  # displays text in new window
 
+
+###############################################################################
 class DBSRun:
     '''
     Stores information about a given run
@@ -44,6 +55,14 @@ class DBSRun:
     '''
 
     def __init__(self,filelist=None):
+
+        '''
+        Class stores all files associated with a given run number, as
+        given by DBS.  Also stores local DQM status (checking whether
+        DQM has run on the set of files, and whether it has successfully
+        completed.
+        '''
+        
         self.runnum=-1
         self.dataset=None
         self.files=[] # Stores files associated with run
@@ -58,27 +77,47 @@ class DBSRun:
 
 
     def Print(self):
-        x= "%10s     %55s     %10s%12s%15s%15s\n"%(self.runnum, self.dataset,
-                                             len(self.files),self.ignoreRun,
-                                             self.startedDQM,self.finishedDQM)
+        '''
+        Returns DBSRun class variable values as a string.
+        '''
+        x= "%10s     %55s     %10s%12s%15s%15s\n"%(self.runnum,
+                                                       self.dataset,
+                                                       len(self.files),
+                                                       self.ignoreRun,
+                                                       self.startedDQM,
+                                                       self.finishedDQM
+                                                       #self.previouslyFinishedDQM
+                                                       )
         
         #print x
         return x
 
 def dbsSort(x,y):
+    '''
+    Sorts DBSRun objects by run number.
+    '''
     return x.runnum>y.runnum
         
-########################################################################
+#############################################################################
 
 class dbsAccessor:
     '''
-    Class that stores values which are used when accessing DBS web page.
+    dbsAccessor:  Class that stores values which are used when
+    accessing DBS web page.
     Values stored as IntVars, StringVars, etc. so that they can be
     easily utilized by the main DQMDBSgui.
     '''
 
     def __init__(self,basepath=os.curdir):
-        self.basepath=basepath
+        '''
+        dbsAccessor tries to read its values from a cPickle file.
+        If the file does not exist, values will be initialized as defaults.
+        IMPORTANT -- this class uses Tkinter StringVar, etc. variables,
+        so this class won't properly initialize unless a Tk instance has
+        been created first.
+        '''
+        
+        self.basepath=basepath 
         try:
             self.host=StringVar()
             self.port=IntVar()
@@ -100,13 +139,16 @@ class dbsAccessor:
         return
 
     def setDefaults(self):
-
+        '''
+        Sets defaults for dbsAccessor.  This is used when
+        defaults cannot be read from cPickle file.
+        '''
         self.searchResult=None
         self.host.set("cmsweb.cern.ch/dbs_discovery/")
         self.port.set(443)
         self.dbsInst.set("cms_dbs_prod_global")
-        self.searchString.set("*/Global*/A/*RAW/*.root")
-        # Assume file takes the form */Global*/A/*/RAW/*.root
+        self.searchString.set("*/GlobalCruzet1-A/*-T0PromptReco-*/RECO*")
+        # Assume dataset name has format */GlobalCruzet1-A/*-T0PromptReco-*/RECO*
         self.page.set(0)
         self.limit.set(10000)
         self.xml.set(False)
@@ -118,9 +160,15 @@ class dbsAccessor:
         return
 
     def getDefaultsFromPickle(self):
+        '''
+        Try to read default values of dbsAccessor from .dbsDefaults.cPickle.
+        If unsuccessful, defaults will be initialized from "setDefaults"
+        function.
+        '''
+        
         if os.path.isfile(os.path.join(self.basepath,".dbsDefaults.cPickle")):
-            pcl=open(os.path.join(self.basepath,".dbsDefaults.cPickle"),'rb')
             try:
+                pcl=open(os.path.join(self.basepath,".dbsDefaults.cPickle"),'rb')
                 self.host.set(cPickle.load(pcl))
                 self.port.set(cPickle.load(pcl))
                 self.dbsInst.set(cPickle.load(pcl))
@@ -133,17 +181,22 @@ class dbsAccessor:
                 self.debug.set(cPickle.load(pcl))
                 self.beginRun.set(cPickle.load(pcl))
                 self.endRun.set(cPickle.load(pcl))
+                pcl.close()
+                          
             except:
                 self.setDefaults()
                 print "Could not read file '.dbsDefaults.cPickle'"
-            pcl.close()
         else:
             self.setDefaults()
         return
 
     def writeDefaultsToPickle(self):
-        pcl=open(os.path.join(self.basepath,".dbsDefaults.cPickle"),'wb')
+        '''
+        Writes default dbsAccessor values to "dbsDefaults.cPickle"
+        '''
+        
         try:
+            pcl=open(os.path.join(self.basepath,".dbsDefaults.cPickle"),'wb')
             cPickle.dump(self.host.get(),pcl)
             cPickle.dump(self.port.get(),pcl)
             cPickle.dump(self.dbsInst.get(),pcl)
@@ -156,12 +209,21 @@ class dbsAccessor:
             cPickle.dump(self.debug.get(),pcl)
             cPickle.dump(self.beginRun.get(),pcl)
             cPickle.dump(self.endRun.get(),pcl)
+            pcl.close()
+            os.system("chmod a+rw %s"%(os.path.join(self.basedir,".dbsDefaults.cPickle")))
+                      
         except:
             print "Could not write file '.dbsDefaults.cPickle'"
-        pcl.close()
         return
 
     def searchDBS(self,beginrun=-1, endrun=-1,mytext=None):
+        '''
+        Searches DBS for files matching specified criteria.
+        Criteria is given by user-supplied "mytext" string.
+        If no such string is provided, default is "find run
+        where file = <dbsAccessor default searchString> and
+        run between <default begin run>-<default end run>"
+        '''
 
         # If beginrun, endrun specified, use their values in the search
         if (beginrun>-1):
@@ -170,9 +232,10 @@ class dbsAccessor:
             self.endRun.set(endrun)
         if (mytext==None):
             # Assume dataset takes the form */Global*-A/*
-            mytext="find run where file=%s and run between %i-%i"%(self.searchString.get(),self.beginRun.get(),self.endRun.get())
+            mytext="find run where dataset=%s and run between %i-%i"%(self.searchString.get(),self.beginRun.get(),self.endRun.get())
         #print "mytext = ",mytext
 
+        # Send search string to DBS, and store result as "searchResult"
         self.searchResult=python_dbs.sendMessage(self.host.get(),
                                                  self.port.get(),
                                                  self.dbsInst.get(),
@@ -187,16 +250,22 @@ class dbsAccessor:
     
 
 ###################################################################
-
 class DQMDBSgui:
     '''
-    Main GUI Class
+    DQMDBSgui:  Main GUI Class
     '''
     
     def __init__(self, parent=None, debug=False):
 
-        #self.basedir=os.path.abspath(os.curdir) # set this directory to a permanent location later
+        '''
+        DQMDBSgui.__init__  creates the graphic interface for the
+        program, and initializes a few needed variables.  Remaining
+        variables are created through the setup() method, called at
+        the end of __init__.
+        '''
 
+        # Check that CMSSW environment has been set;
+        # Set basedir to CMSSW release area
         checkCMSSW=os.popen2("echo $CMSSW_BASE")
         self.basedir=checkCMSSW[1].read()
         if len(self.basedir)<2:
@@ -205,33 +274,30 @@ class DQMDBSgui:
             sys.exit()
 
 
+        # Now set base directory to area of release containg GUI
         self.basedir=self.basedir.strip("\n")
-        self.basedir=os.path.join(self.basedir,"src/DQM/HcalMonitorModule/python/dqmdbsGUI")
+        self.basedir=os.path.join(self.basedir,"src/RecoHcal/HcalProm/python/hcalpromGUI")
+        if not os.path.exists(self.basedir):
+            print "Unable to find directory '%s'"%self.basedir
+            print "Have you checked out the appropriate package in your release area?"
+            sys.exit()
 
 
-      
+        self.debug=debug
         
         # Create GUI window
         if (parent==None):
             self.root=Tk()
-            self.root.title("HCAL DQM from DBS GUI")
+            self.root.title("HcalPrompt DQM from DBS GUI")
+            self.root.geometry('+25+25') # set initial position of GUI
         else:
-            self.root=parent
+            self.root=parent # could conceivably put GUI within another window
 
-        # Set initial position of GUI
-        self.root.geometry('+25+25')
 
         if (debug):
             print "Created main GUI window"
 
-
-        self.finalDir=StringVar()
-        self.finalDir.set(self.basedir) # set this to some other location later!
-        self.maxDQMEvents=IntVar()
-        self.maxDQMEvents.set(1000)
-
-
-        # Set up bg, fg colors for later use
+        # Set up bg, fg colors for use by GUI
         self.bg="#ffff73cb7"  # basic background color -- peach-ish
         self.bg_alt="#b001d0180" # alternate bg - dark red-ish
         self.fg="#180580410" # basic fg color -- green/grey-ish
@@ -244,12 +310,13 @@ class DQMDBSgui:
         self.menubar=Frame(self.root,borderwidth=1,
                            bg=self.bg,
                            relief='raised')
-        self.root.columnconfigure(0,weight=1)
+        self.root.columnconfigure(0,weight=1) # allows column 0 to expand
         self.root.rowconfigure(1,weight=1)
         
         self.menubar.grid(row=rootrow,column=0,sticky=EW)
 
         rootrow=rootrow+1
+        # Create frame that holds search values (i.e., run range to search in DBS)
         self.searchFrame=Frame(self.root,
                                bg=self.bg)
                                
@@ -258,11 +325,13 @@ class DQMDBSgui:
                               column=0)
 
         rootrow=rootrow+1
-        
+
+        # Create main Frame (holds "Check DBS" and "Check DQM" buttons and status values)
         self.mainFrame=Frame(self.root,
                              bg=self.bg)
         self.mainFrame.grid(row=rootrow,column=0,sticky=EW)
 
+        # Frame that will display overall status messages
         self.statusFrame=Frame(self.root,
                                bg=self.bg
                                )
@@ -271,10 +340,12 @@ class DQMDBSgui:
 
 
         ########################################################
-        #
-        #  Fill the menu bar
-        #
-
+        #                                                      #
+        #  Fill the menu bar                                   #
+        #                                                      #
+        ########################################################
+        
+        mycol=0
         # make File button on menubar
         self.BFile=Menubutton(self.menubar,
                               text = "File",
@@ -284,8 +355,10 @@ class DQMDBSgui:
                               bg=self.bg,
                               fg=self.fg,
                               padx=10, pady=8)
-        self.BFile.pack(side="left")
+        self.BFile.grid(row=0,column=mycol,sticky=W)
 
+        # Make DBS option menu on menubar
+        mycol=mycol+1
         self.Bdbs=Menubutton(self.menubar,
                              text="DBS options",
                              font= ('Times',12,'bold italic'),
@@ -294,8 +367,11 @@ class DQMDBSgui:
                              bg=self.bg,
                              fg=self.fg,
                              padx=10, pady=8)
-        self.Bdbs.pack(side="left")
+        self.Bdbs.grid(row=0,column=mycol,sticky=W)
 
+
+        # Make DQM option menu on menubar
+        mycol=mycol+1
         self.Bdqm=Menubutton(self.menubar,
                              text="DQM options",
                              font= ('Times',12,'bold italic'),
@@ -304,8 +380,10 @@ class DQMDBSgui:
                              bg=self.bg,
                              fg=self.fg,
                              padx=10, pady=8)
-        self.Bdqm.pack(side="left")
+        self.Bdqm.grid(row=0,column=mycol,sticky=W)
 
+        # Make status button on menubar
+        mycol=mycol+1
         self.Bprogress=Menubutton(self.menubar,
                                   text="Status",
                                   font=('Times',12,'bold italic'),
@@ -314,15 +392,43 @@ class DQMDBSgui:
                                   bg=self.bg,
                                   fg=self.fg,
                                   padx=10, pady=8)
-        self.Bprogress.pack(side="left")
+        self.Bprogress.grid(row=0,column=mycol)
 
+        # Eventually will allow copying of files to destinations
+        # outside local areas
+        mycol=mycol+1
+        self.menubar.columnconfigure(mycol,weight=1)
+        Label(self.menubar,text="Copy DQM to:",
+              fg=self.fg,bg=self.bg).grid(row=0,
+                                          column=mycol,
+                                          sticky=E)
+        mycol=mycol+1
+        self.copyLocVar=StringVar()
+        self.copyLocVar.set("Local area")
+        # List possible copy destinations
+        # (not yet implemented, until we can figure out how to
+        #  auto scp)
+        self.copyLoc=OptionMenu(self.menubar,self.copyLocVar,
+                                "Local area"
+                                #"cmshcal01"
+                                )
+        self.copyLoc.configure(background=self.bg,
+                               foreground=self.fg,
+                               activebackground=self.alt_active)
 
+        self.copyLoc.grid(row=0,column=mycol,sticky=E)
+                
+
+        # Make 'heartbeat' label that shows when auto-checking is on
+        mycol=mycol+1
         self.HeartBeat=Label(self.menubar,
                              text="Auto",
                              bg=self.bg,
                              fg=self.bg,
                              padx=10,pady=8)
-        
+        self.HeartBeat.grid(row=0,column=mycol,sticky=W)
+
+        # Make 'About' menu to store help information 
         self.BAbout=Menubutton(self.menubar,
                                text="About",
                                font= ('Times',12,'bold italic'),
@@ -331,26 +437,36 @@ class DQMDBSgui:
                                bg=self.bg,
                                fg=self.fg,
                                padx=10, pady=8)
-        self.BAbout.pack(side="right")
-        self.HeartBeat.pack(side="right")
+        mycol=mycol+1
+        self.BAbout.grid(row=0,column=mycol,sticky=W)
 
+
+        # Fill 'File' Menu
         self.quitmenu=Menu(self.BFile, tearoff=0,
                            bg="white")
 
+        # Clear out default values
         self.quitmenu.add_command(label="Clear all default files",
                                   command=lambda x=self:x.removeFiles(removeAll=False))
+        # Clear out hidden files
         self.quitmenu.add_command(label="Clear ALL hidden files",
                                   command=lambda x=self:x.removeFiles(removeAll=True))
         self.quitmenu.add_separator()
+        # Call Quit coomand
         self.quitmenu.add_command(label="Quit",
                                   command = lambda x=self: x.goodQuit())
 
         self.BFile['menu']=self.quitmenu
 
+
+        # Fill 'Status' Menu
         self.statusmenu=Menu(self.Bprogress,
                              bg="white")
         self.statusmenu.add_command(label="Show run status",
                                     command = lambda x=self:x.displayFiles())
+        self.statusmenu.add_separator()
+        self.statusmenu.add_command(label="Change run status",
+                                    command = lambda x=self:x.changeFileSettings())
         self.statusmenu.add_separator()
         self.statusmenu.add_command(label="Clear run file",
                                     command = lambda x=self:x.clearPickle())
@@ -358,20 +474,21 @@ class DQMDBSgui:
                                     command = lambda x=self:x.restoreFromBackupPickle())
         self.Bprogress['menu']=self.statusmenu
 
+        # Fill 'About' menu"
         self.aboutmenu=Menu(self.BAbout,
                             bg="white")
-        temptext="DQMfromDBS GUI\n\nv1.0 Beta\nby Jeff Temple\n4 May 2008\n\n"
-        temptext=temptext+"GUI allows users to query DBS for files in a specified\nrun range, and then run HCAL DQM over those files.\n\nQuestions or comments?\nSend to:  jtemple@fnal.gov\n"
+        temptext="DQMfromDBS GUI\n\nv1.2 Beta\nby Jeff Temple\n7 May 2008\n\n"
+        temptext=temptext+"GUI allows users to query DBS for files in a specified\nrun range, and then run HcalPrompt DQM over those files.\n\nQuestions or comments?\nSend to:  jtemple@fnal.gov\n"
         self.aboutmenu.add_command(label="Info",
                                    command = lambda x=helpfunctions:
-                                   x.Helpwin(temptext,usetext=1))
+                                   x.Helpwin(temptext,usetext=1,title="About this program..."))
         self.aboutmenu.add_command(label="Help",
                                    command = lambda x=helpfunctions:
-                                   x.Helpwin("dqmdbs_instructions.txt"))
+                                   x.Helpwin("dqmdbs_instructions.txt",title="Basic instructions for the user"))
         self.BAbout['menu']=self.aboutmenu
 
-        # TO DO:  Complete menus for controlling DBS, DQM run ranges
 
+        # Fill 'DBS Options' Menu
         self.dbsmenu=Menu(self.Bdbs,
                           bg="white",
                           tearoff=0)
@@ -386,7 +503,7 @@ class DQMDBSgui:
         
         self.Bdbs['menu']=self.dbsmenu
 
-
+        # Fill 'DQM Options' Menu
         self.dqmmenu=Menu(self.Bdqm,
                           bg="white",
                           tearoff=0)
@@ -397,12 +514,18 @@ class DQMDBSgui:
         
 
         ########################################################
-        #
-        #  Fill the searchFrame
-        #
+        #                                                      #
+        #  Fill the searchFrame                                #
+        #                                                      #
+        ########################################################
         
-        # Not yet sure whether to have BeginRun,EndRun variables,
-        # or to determine them from LastFound, Range
+
+        # Declare variables for range of runs to be searched in DBS,
+        # as well as the starting point
+        # ("lastFoundDBS" is a bit of a misnomer -- this value will
+        # actually be 1 greater than the last found run under normal
+        # circumstances.)
+
         self.dbsRange=IntVar()
         self.lastFoundDBS=IntVar()
 
@@ -410,6 +533,8 @@ class DQMDBSgui:
         Label(self.searchFrame,text = "Search over ",
               bg=self.bg,
               fg=self.bg_alt).grid(row=searchrow,column=0)
+
+        # Entry boxes hold IntVars
         self.dbsRangeEntry=Entry(self.searchFrame,
                                  bg="white",
                                  fg=self.bg_alt,
@@ -423,23 +548,25 @@ class DQMDBSgui:
                                      textvar=self.lastFoundDBS)
         self.lastFoundDBSEntry.grid(row=searchrow,column=3)
 
-
         
-        Label(self.searchFrame,text="runs, starting with run #",
+        Label(self.searchFrame,
+              text="runs, starting with run #",
               bg=self.bg,
               fg=self.bg_alt).grid(row=searchrow,column=2)
 
 
         #########################################################
-        #
-        # Fill main window frame
-        #
+        #                                                       #
+        # Fill main window frame                                #
+        #                                                       #
+        #########################################################
         
         mainrow=0
+        # This is a blank label that provides a green stripe across the GUI
         Label(self.mainFrame,text="",
               font = ('Times',2,'bold italic'),
               bg=self.fg).grid(row=mainrow,column=0,
-                               columnspan=7,sticky=EW)
+                               columnspan=10,sticky=EW)
 
         
         mainrow=mainrow+1
@@ -450,6 +577,8 @@ class DQMDBSgui:
               bg=self.bg,
               fg=self.bg_alt).grid(row=mainrow,column=2)
 
+        # Create boolean for determining whether or not Auto-running
+        # is enabled
         self.Automated=BooleanVar()
         self.Automated.set(False)
         self.autoButton=Button(self.mainFrame,
@@ -462,6 +591,7 @@ class DQMDBSgui:
         
 
         mainrow=mainrow+1
+        # Make labels/entries/buttons dealing with DBS
         self.dbsLabel=Label(self.mainFrame,
                             text="DBS:",
                             fg=self.fg, bg=self.bg,
@@ -519,7 +649,7 @@ class DQMDBSgui:
                              bg=self.bg,
                              fg=self.fg)
         self.dqmButton=Button(self.mainFrame,
-                              text="Run the \nHCAL DQM",
+                              text="Run the Hcal\nPrompt DQM",
                               height=2,
                               width=15,
                               fg=self.bg,
@@ -548,30 +678,46 @@ class DQMDBSgui:
         
 
         ######################################################
-        #
-        #  Fill the statusFrame
-        #
+        #                                                    #
+        #  Fill the statusFrame                              #
+        #                                                    #
+        ######################################################
         
         self.statusFrame.columnconfigure(0,weight=1)
+        # commentLabel will display messages to user
         self.commentLabel=Label(self.statusFrame,
                                 bg=self.bg,
                                 fg=self.bg_alt,
                                 height=2,
-                                text="Welcome to the HCAL DQM/DBS GUI")
+                                text="Welcome to the Hcal Prompt DQM/DBS GUI")
         statusrow=0
         self.commentLabel.grid(row=statusrow,column=0,sticky=EW)
 
+        # Call setup (initializes remaining needed variables)
         self.setup()
-
         return
 
-    
+
+
+    ##########################################################################
     def setup(self):
         ''' Setup creates variables, sets values, etc. once drawing of
             main GUI is complete.'''
 
-        
-        self.dbsRange.set(10) # specify range of runs over which to search, starting at the LastDBS value
+
+        # DQM output is initially stored locally;
+        #self.finalDir determines where
+        # it will be sent once the DQM has finished running.
+        self.finalDir=StringVar()
+        self.finalDir.set(self.basedir) # set this to some other location later!
+
+        # Store maximum # of events to be run for each DQM job 
+        self.maxDQMEvents=IntVar()
+        self.maxDQMEvents.set(1000)
+
+
+        # TO DO:  Make this default value changeable by user?  Save in cPickle?
+        self.dbsRange.set(100) # specify range of runs over which to search, starting at the LastDBS value
 
         self.lastFoundDBS.set(42100) # specify last run # found in DBS
 
@@ -579,13 +725,14 @@ class DQMDBSgui:
         # call thread with time.sleep option
         self.foundfiles=0 # number of files found in the latest DBS search
 
-        self.myDBS = dbsAccessor(self.basedir)
+        self.myDBS = dbsAccessor(self.basedir) # Will access runs from DBS
         self.myDBS.getDefaultsFromPickle()
         self.dbsSearchInProgress=False
         self.pickleFileOpen=False
         self.runningDQM=False
 
-        self.readPickle()
+        self.readPickle() # Read defaults from cPickle file
+        
         # Set lastFoundDBS to most recent run in filesInDBS 
         if len(self.filesInDBS.keys()):
             x=self.filesInDBS.keys()
@@ -594,6 +741,7 @@ class DQMDBSgui:
             self.lastFoundDBS.set(x[0])
 
 
+        # TO DO:  Make Auto Update Times adjustable by user
         self.dbsAutoUpdateTime=20 # dbs update time in minutes
         self.dbsAutoCounter=0
         self.dqmAutoUpdateTime=20 # dqm update time in minutes
@@ -604,25 +752,38 @@ class DQMDBSgui:
         self.cfgFileName=StringVar()
         self.cfgFileName.set(os.path.join(self.basedir,"hcalprom_gui.cfg"))
         self.getDefaultDQMFromPickle()
+
+        self.autoRunShift=True # automatically updates run entry when new run found
+        # Hidden trick to freeze starting run value!
+        self.lastFoundDBSEntry.bind("<Shift-Up>",self.toggleAutoRunShift)
+        self.lastFoundDBSEntry.bind("<Shift-Down>",self.toggleAutoRunShift)
         return
 
 
-
+    ############################################################
     def checkAutoUpdate(self):
+        ''' This is the function associated with the "Auto Update" button.
+            It toggles the self.Automated variable.
+            If self.Automated is true, then DBS searches and DQM running
+            are performed automatically.
+            '''
 
         #self.dqmAutoButton.flash()
-        self.Automated.set(1-self.Automated.get())
+        self.Automated.set(1-self.Automated.get())  # toggle boolean
         if (self.Automated.get()==True):
             self.autoButton.configure(text="Auto Update\nEnabled",
                                       bg=self.bg_alt,
                                       fg=self.bg)
+            # enable DQM, DBS buttons
             self.dqmAutoButton.configure(state=NORMAL,bg=self.bg,fg=self.fg)
             self.dbsAutoButton.configure(state=NORMAL,bg=self.bg,fg=self.fg)
             self.dbsAutoVar.set(True)
             self.dqmAutoVar.set(True)
+            # Start autoUpdater thread
             thread.start_new(self.autoUpdater,())
 
         else:
+            # Boolean false; turn off auto updater
             self.autoButton.configure(text="Auto Update\nDisabled!!",
                                       bg="black",
                                       fg="white")
@@ -630,13 +791,16 @@ class DQMDBSgui:
             self.dbsAutoButton.configure(state=DISABLED)
             self.dbsAutoVar.set(False)
             self.dqmAutoVar.set(False)
-                        
+
         self.root.update()
 
         return
 
-
-    def heartbeat(self):
+    #########################################################
+    def heartbeat(self,interval=1):
+        '''
+        Make heartbeat label flash once per second.
+        '''
         while (self.Automated.get()):
             if (self.hbcolor==self.bg):
                 self.hbcolor=self.bg_alt
@@ -644,13 +808,18 @@ class DQMDBSgui:
                 self.hbcolor=self.bg
             self.HeartBeat.configure(bg=self.hbcolor)
             self.root.update()
-            time.sleep(1)
+            time.sleep(interval)
 
         self.HeartBeat.configure(bg=self.bg)
         return
-        
+
+    #########################################################
     def autoUpdater(self):
+        ''' DQM/DBS Auto updater. '''
+
         if self.autoRunning==True:
+            # Don't allow more than one autoUpdater to run at one time
+            # (I don't think this is possible anyway)
             self.commentLabel.configure(text="Auto Updater is already running!")
             self.root.update()
             return
@@ -659,37 +828,42 @@ class DQMDBSgui:
             self.root.update()
             return
 
-        thread.start_new(self.heartbeat,())
+        thread.start_new(self.heartbeat,()) # create heartbeat to show auto-update is running
         self.checkDBS() # perform initial check of files
         self.runDQM_thread() # perform initial check of DQM
         
         while (self.Automated.get()):
             self.autoRunning=True
             time.sleep(60)
-            #print self.dbsAutoVar.get(), self.dqmAutoVar.get()
+            # print self.dbsAutoVar.get(), self.dqmAutoVar.get()
+            # Increment counters once per minute
             self.dbsAutoCounter=self.dbsAutoCounter+1
             self.dqmAutoCounter=self.dqmAutoCounter+1
             #print self.dbsAutoCounter
             
             # if DBS counter > update time ,check DBS for new files
             if (self.dbsAutoCounter >= self.dbsAutoUpdateTime):
-                print "Checking DBS!"
-                if (self.checkDBS()): # search was successful; reset counter
+                # Reset counter if auto dbs disabled
+                if (self.dbsAutoVar.get()==False):
                     self.dbsAutoCounter=0
-                    print "DBS Check succeeded!"
-                else: # search unsuccessful; try again in 1 minute
-                    self.dbsAutoCounter=(self.dbsAutoUpdateTime-1)*60
-                    print "DBS Check unsuccessful"
+                else:
+                    #print "Checking DBS!"
+                    if (self.checkDBS()): # search was successful; reset counter
+                        self.dbsAutoCounter=0
+                        #print "DBS Check succeeded!"
+                    else: # search unsuccessful; try again in 1 minute
+                        self.dbsAutoCounter=(self.dbsAutoUpdateTime-1)*60
+                        #print "DBS Check unsuccessful"
 
             # repeat for DQM checking
             if (self.dqmAutoCounter >= self.dqmAutoUpdateTime):
-                print "Starting DQM!"
-                if (self.runDQM_thread()): # search successful; reset counter
+                # If dqmAutoVar is off, reset counter
+                if (self.dqmAutoVar.get()==False):
                     self.dqmAutoCounter=0
-                    print "DQM Successful!"
-                else: # search unsuccessful; try again in 5 minutes
-                    self.dqmAutoCounter=(self.dqmAutoUpdateTime-5)*60
-                    print "DQM Unsuccessful!"
+                # Otherwise, run DQM
+                else:
+                    self.runDQM_thread()
+
 
         # Auto updating deactivated; reset counters and turn off heartbeat
         self.dbsAutoCounter=0
@@ -699,15 +873,23 @@ class DQMDBSgui:
         
 
     def printDBS(self):
-        # Only allow one window setting at a time?
+        '''
+        Create new window showing DBS values; allow user to change them.
+        '''
         try:
             self.dbsvaluewin.destroy()
             self.dbsvaluewin=Toplevel()
         except:
             self.dbsvaluewin=Toplevel()
+
+        self.dbsvaluewin.title('Change DBS values')
+        self.dbsvaluewin.geometry('+600+300')
         myrow=0
-        
-        myvars={"  DBS File Search String = ":self.myDBS.searchString,
+
+        # Variables to be shown in window
+        # Add spaces in front of some keys so that they appear
+        # first when keys are sorted.
+        myvars={"  DBS Dataset Search String = ":self.myDBS.searchString,
                 "  DBS Files to Return = ":self.myDBS.limit,
                 " DBS Host = ":self.myDBS.host,
                 " DBS Port = ":self.myDBS.port,
@@ -720,7 +902,8 @@ class DQMDBSgui:
 
         temp=myvars.keys()
         temp.sort()
-    
+
+        # Grid variable labels, entreis
         for i in temp:
             Label(self.dbsvaluewin,
                   width=40,
@@ -729,6 +912,8 @@ class DQMDBSgui:
                   width=40,
                   textvar=myvars[i]).grid(row=myrow,column=1)
             myrow=myrow+1
+
+        # Grid buttons for saving, restoring values
         Button(self.dbsvaluewin,text="Save as new default values",
                command = lambda x=self.myDBS:x.writeDefaultsToPickle()).grid(row=myrow,column=0)
         Button(self.dbsvaluewin,text="Restore default values",
@@ -738,19 +923,30 @@ class DQMDBSgui:
 
 
     def printDQM(self):
-        # Only allow one window setting at a time?
+        '''
+        Create window for editing DQM values.
+        '''
         try:
             self.dqmvaluewin.destroy()
             self.dqmvaluewin=Toplevel()
         except:
             self.dqmvaluewin=Toplevel()
+
+        self.dqmvaluewin.title("Edit DQM parameters")
+        self.dqmvaluewin.geometry('+400+300')
         myrow=0
+
+        # List of variables to be shown in window.
+        # Add spaces in front of some keys so that they
+        # appear first when sorted.
         
         myvars={"  Final DQM Save Directory = ":self.finalDir,
                 "  # of events to run for each DQM = ":self.maxDQMEvents,
                 "  .cfg file to run for each DQM = ":self.cfgFileName}
         temp=myvars.keys()
         temp.sort()
+
+        # Create variable labels, entries
         for i in temp:
             Label(self.dqmvaluewin,
                   width=40,
@@ -766,7 +962,12 @@ class DQMDBSgui:
                                                                          column=1)
         return
 
+
     def getDefaultDQMFromPickle(self):
+        '''
+        Get DQM default values from .dqmDefaults.cPickle.
+        '''
+
         if os.path.isfile(os.path.join(self.basedir,".dqmDefaults.cPickle")):
             try:
                 pcl=open(os.path.join(self.basedir,".dqmDefaults.cPickle"),'rb')
@@ -780,12 +981,17 @@ class DQMDBSgui:
         return
 
     def writeDefaultDQMToPickle(self):
+        '''
+        Write DQM default values to .dqmDefaults.cPickle.
+        '''
         try:
             pcl=open(os.path.join(self.basedir,".dqmDefaults.cPickle"),'wb')
             cPickle.dump(self.finalDir.get(),pcl)
             cPickle.dump(self.maxDQMEvents.get(),pcl)
             cPickle.dump(self.cfgFileName.get(),pcl)
             pcl.close()
+            os.system("chmod a+rw %s"%os.path.join(self.basedir,".dqmDefaults.cPickle"))
+                      
         except SyntaxError:
             self.commentLabel.configure(text="Could not write file '.dqmDefaults.cPickle' ")
             self.root.update()
@@ -793,6 +999,9 @@ class DQMDBSgui:
 
 
     def readPickle(self):
+        '''
+        Read list of found runs from .filesInDBS.cPickle.
+        '''
         
         if (self.pickleFileOpen):
             self.commentLabel.configure(text="Sorry, .filesInDBS.cPickle is already open")
@@ -818,20 +1027,31 @@ class DQMDBSgui:
 
 
     def writePickle(self):
+        '''
+        Write list of found runs to .filesInDBS.cPickle.
+        '''
         if (self.pickleFileOpen):
             self.commentLabel.configure(text="Sorry, could not write information to .filesInDBS.cPickle.\ncPickle file is currently in use.")
             self.root.update()
             return
         self.pickleFileOpen=True
         if len(self.filesInDBS)>0:
-            myfile=open(os.path.join(self.basedir,".filesInDBS.cPickle"),'wb')
-            cPickle.dump(self.filesInDBS,myfile)
-            myfile.close()
+            try:
+                myfile=open(os.path.join(self.basedir,".filesInDBS.cPickle"),'wb')
+                cPickle.dump(self.filesInDBS,myfile)
+                myfile.close()
+                os.system("chmod a+rw %s"%os.path.join(self.basedir,".filesInDBS.cPickle"))
+            except:
+                self.commentLabel.configure(text="ERROR!  Could not write to file .filesInDBS.cPickle!\n  This bug will be investigated!")
+                self.root.update()
         self.pickleFileOpen=False
         return
 
 
     def clearPickle(self):
+        '''
+        Clear list of found runs, copying .cPickle info to backup file.
+        '''
         if not (os.path.isfile(os.path.join(self.basedir,".filesInDBS.cPickle"))):
             self.commentLabel.configure(text="No run list .filesInDBS.cPickle exists!\nThere is nothing yet to clear!")
             self.root.update()
@@ -849,6 +1069,10 @@ class DQMDBSgui:
         return
 
     def restoreFromBackupPickle(self):
+        '''
+        Restore list of found runs from .backup_filesInDBS.cPickle file
+        '''
+        
         if not (os.path.isfile(os.path.join(self.basedir,".backup_filesInDBS.cPickle"))):
             self.commentLabel.configure("Sorry, backup file does not exist!")
             self.root.update()
@@ -902,22 +1126,29 @@ class DQMDBSgui:
             if (self.runningDQM):
                 text=text+"\nDQM is currently running"
             text=text+"\nDo you want to exit anyway?"
-            if tkMessageBox.askyesno("Jobs not yet completed",text):
-                self.root.destroy()
-            else:
+            if not tkMessageBox.askyesno("Jobs not yet completed",text):
                 return
 
-        else:
-            self.root.destroy()
+        # TO DO:  KILL EXISTING cmsRun jobs if they are running when the user decides to quit.
+        self.Automated.set("False")
+        self.root.destroy()
         return
 
 
 
     def runDQM_thread(self):
+        '''
+        Start new thread for running DQM
+        '''
         thread.start_new(self.runDQM,(1,2))
         return
 
     def runDQM(self,dummy1=None,dummy2=None):
+        '''
+        Runs DQM over all found files.
+        Can we get rid of dummy1, dummy2 variables?
+        '''
+        
         mytime=time.time()
         
         if self.runningDQM:
@@ -938,7 +1169,8 @@ class DQMDBSgui:
                                        bg="black")
             self.root.update()
             return
-        
+
+        # If runs found, sort by run number (largest number first)
         if len(self.filesInDBS.keys()):
             x=self.filesInDBS.keys()
             x.sort()
@@ -981,11 +1213,11 @@ class DQMDBSgui:
                 # DQM not finished; look to see if directory made for it
                 # (can later check for files within directory?)
                 # Check to see if the output exists
-                if (i<100000):
-                    x=os.path.isdir("DQM_Hcal_R0000%i"%i)
-                else:
-                    x=os.path.isdir("DQM_Hcal_R000%i"%i)
-                if (not x):
+
+                # Check for output file from input
+                tempoutput="prompt_out_%i.root"%i
+                
+                if not(os.path.isfile(os.path.join(self.basedir,tempoutput))):
                     print "Problem with Run # %i -- DQM started but did not finish!"%i
                     self.commentLabel.configure(text="Problem with Run # %i -- DQM started but did not finish!"%i)
                     self.root.update()
@@ -1050,6 +1282,8 @@ class DQMDBSgui:
                 
 
     def callDQMscript(self,i):
+        ''' Here is where we actually perform the cmsRun call.'''
+        
         time.sleep(1)
         # Get rid of old file
         if os.path.isfile(os.path.join(self.basedir,".runOptions.cfi")):
@@ -1057,7 +1291,14 @@ class DQMDBSgui:
         time.sleep(1)
 
         #print os.path.join(self.basedir,".runOptions.cfi")
-        temp=open(os.path.join(self.basedir,".runOptions.cfi"),'w')
+        try:
+            temp=open(os.path.join(self.basedir,".runOptions.cfi"),'w')
+        except:
+            self.commentLabel.configure(text="MAJOR ERROR!  Could not write to .runOptions.cfi!  \nCheck file/directory permissions!")
+            self.dqmProgress.configure(text="FAILED!  Couldn't write .runOptions.cfi")
+            self.root.update()
+            return False
+        
         # Allow a different # for each file?
         #temp.write("replace maxEvents.input=%i\n"%self.filesInDBS[i].maxEvents)
 
@@ -1072,32 +1313,48 @@ class DQMDBSgui:
                 temp.write(",\n")
         temp.write("}\n")
         temp.close()
+        os.system("chmod a+rw %s"%os.path.join(self.basedir,".runOptions.cfi"))
         
         # Now run cmsRun!
         if not (os.path.isfile(os.path.join(self.basedir,".runOptions.cfi"))):
             self.commentLabel.configure(text="Could not find .runOptions.cfi file\nFor run #%i"%i)
             self.root.update()
-            return
+            return False
 
         os.system("cmsRun %s"%self.cfgFileName.get())
+        
+
         
         success=False
         time.sleep(2)
 
-        
+        tempoutput="prompt_out.root"
         # make fancier success requirement later -- for now, just check that directory exists
-        if os.path.isdir(os.path.join(self.basedir,"prompt_out.root")):
+        if (self.debug):
+            print "%s exists? %i"%(os.path.join(self.basedir,tempoutput),
+                                   os.path.isdir(os.path.join(self.basedir,tempoutput)))
+
+        if os.path.isfile(os.path.join(self.basedir,tempoutput)):
             success=True
-            newname="prompt_out_%i.root"%i
-            os.system("mv %s %s"%(os.path.join(self.basedir,"prompt_out.root"),
-                                  os.path.join(self.basedir,newname)))
-            # Move to a new directory once final_dir is determined
-            if (self.finalDir.get()<>self.basedir):
-                os.system("mv %s %s"%(os.path.join(self.basedir,newname),
-                                      os.path.join(self.finalDir.get(),newname))) 
+            newoutput=("prompt_out_%i.root"%i)
+            newoutput=os.path.join(self.basedir,newoutput)
+            os.system("mv %s %s"%(os.path.join(self.basedir,tempoutput),newoutput))
+            # If final destination is in local area, and
+            # if final dir differs from base dir, move to that directory
+            if (self.copyLocVar.get()=="Local area" and
+                 self.finalDir.get()<>self.basedir):
+                os.system("mv %s %s"%(newoutput,self.finalDir.get()))
+                self.commentLabel.configure(text = "moved file %s\n to directory %s"%(newoutput,
+                                                                                      self.finalDir.get()))
+                self.root.update()
+                time.sleep(1)
 
+            # This needs to be updated once we figure out how to auto scp
+            elif (self.copyLocVar.get()=="cmshcal01"):
+                #os.system("scp %s ..."%x)  # update with end location name!
+                print "cmshcal01 copying not yet implemented!"
+                
         return success
-
 
 
     def checkDBS(self):
@@ -1119,7 +1376,7 @@ class DQMDBSgui:
         self.myDBS.searchDBS(begin,end) # Search, getting run numbers
 
         if (self.parseDBSInfo()):
-            self.commentLabel.configure(text="Finished checking DBS runs (%i-%i)\nFound a total of %i runs"%(begin,end,self.foundfiles))
+            self.commentLabel.configure(text="Finished checking DBS runs (%i-%i)\nFound a total of %i files"%(begin,end,self.foundfiles))
 
         self.dbsSearchInProgress=False
         self.dbsButton.configure(state=ACTIVE)
@@ -1135,8 +1392,13 @@ class DQMDBSgui:
         '''
 
         runlist=[]
+        begin=self.lastFoundDBS.get()
+        end=begin+self.dbsRange.get()
         runs=string.split(self.myDBS.searchResult,"\n")
         for r in runs:
+            if (len(r)==0):
+                continue # skip blank output lines
+            # Use "Found ... runs" output line to determine # of runs found
             if (r.startswith("Found")):
                 self.foundfiles=string.atoi(string.split(r)[1])
                 if (self.foundfiles==0):
@@ -1173,9 +1435,10 @@ class DQMDBSgui:
             self.root.update()
 
             tempfiles=[]
-            
+
+            # For each run, create new accessor that will find files, datasets associated with the run
             x=dbsAccessor()
-            text="find file,dataset where file=%s and run=%i"%(self.myDBS.searchString.get(),r)
+            text="find file,dataset where dataset=%s and run=%i"%(self.myDBS.searchString.get(),r)
             x.searchDBS(mytext=text)
             
             files=string.split(x.searchResult,"\n")
@@ -1200,7 +1463,7 @@ class DQMDBSgui:
                         self.root.update()
                         return False
                 else:
-                    print "i = ",file
+                    #print "i = ",file
                     try:
                         i=string.split(file,",")
                         dataset=i[1] # dataset
@@ -1233,17 +1496,18 @@ class DQMDBSgui:
                 
             
         # Set lastFoundDBS to most recent run in filesInDBS 
+        
         if len(self.filesInDBS.keys()):
             x=self.filesInDBS.keys()
             x.sort()
             x.reverse()
-            self.lastFoundDBS.set(x[0]) # add a +1?
+            if (self.autoRunShift):
+                self.lastFoundDBS.set(x[0]+1) # move to next run after last-found
             #for zz in x:
             #    print self.filesInDBS[zz].Print()
             #    for ff in self.filesInDBS[zz].files:
             #        print ff
-            # change from 'last found' to 'last checked'?
-            # What about files that were run, but don't yet appear in DBS?
+
             #self.lastFoundDBS.set(self.lastFoundDBS.get()+self.dbsRange.get())
         self.writePickle()
 
@@ -1259,24 +1523,162 @@ class DQMDBSgui:
             self.root.update()
             return False
         
-        self.dbsProgress.configure(text="Successfully grabbed runs %i-%i"%(self.lastFoundDBS.get(),self.lastFoundDBS.get()+self.dbsRange.get()),
+        self.dbsProgress.configure(text="Successfully grabbed runs %i-%i"%(begin,end),
                                    bg="black")
         self.root.update()
+        
         return True
     
 
 
     def displayFiles(self):
+        '''
+        Show all run numbers that have been found from DBS, along with the
+        DQM status of each run.
+        '''
+
+        # Get runs, sort highest-to-lowest
         x=self.filesInDBS.keys()
         x.sort()
         x.reverse()
-        temp = "%10s     %45s%10s     %10s%12s%15s%15s\n"%(" Run #", "Dataset"," ",
-                                                 "# of files","IgnoreRun?",
-                                                 "Started DQM?","Finished DQM?")
+        temp ="%10s     %45s%10s     %10s%12s%15s%15s\n"%(" Run #", "Dataset"," ",
+                                                          "# of files","IgnoreRun?",
+                                                          "Started DQM?","Finished DQM?")
         for i in x:
             temp=temp+self.filesInDBS[i].Print()
+
+        # Make window displaying run info
+        if (len(x)<>1):
+            title="A total of %i runs have been found in DBS"%len(x)
+        else:
+            title="A total of 1 run has been found in DBS"
+        helpfunctions.Helpwin(temp,usetext=1,title=title )
+        return
+
+
+    def changeFileSettings(self):
+        '''
+        Allows user to change the DQM status of the runs found from DBS.
+        (Mark runs as having already completed DQM, set ignoreRun true, etc.)
+        '''
+
+        # If window exists already, destroy it and recreate 
+        try:
+            self.changevaluewin.destroy()
+            self.changevaluewin=Toplevel()
+        except:
+            self.changevaluewin=Toplevel()
+        self.changevaluewin.geometry('+800+20')
+        self.changevaluewin.title("Change status of files")
         
-        helpfunctions.Helpwin(temp,usetext=1)
+        # Add list of runs as a list box with attached scrollbar
+        scrollwin=Frame(self.changevaluewin)
+        scrollwin.grid(row=0,column=0)
+        myrow=0
+        Label(scrollwin,
+              text="Be sure to check Status menu after your changes are made").grid(row=myrow,column=0)
+        myrow=myrow+1
+        lb=Listbox(scrollwin,
+                   selectmode = MULTIPLE)
+        # Get list of runs
+        self.listboxruns=self.filesInDBS.keys()
+        self.listboxruns.sort()
+        self.listboxruns.reverse()
+
+        for i in self.listboxruns:
+            lb.insert(END,i)
+            
+        scroll=Scrollbar(scrollwin,command=lb.yview)
+        lb.configure(yscrollcommand=scroll.set)
+        lb.grid(row=myrow,column=0,sticky=NSEW)
+        scroll.grid(row=myrow,column=1,sticky=NS)
+
+        # Add buttons for changing DQM values
+        myrow=myrow+1
+        self.changevaluewin.rowconfigure(myrow,weight=1)
+        bFrame=Frame(self.changevaluewin)
+        bFrame.grid(row=1,column=0)
+        igY=Button(bFrame,
+                   text="Set\n'Ignore Run'\nTrue",
+                   command=lambda x=self:x.commandChangeFileSettings(lb.curselection(),
+                                                                     "ignoreRun",True),
+                   width=14,height=3)
+        igN=Button(bFrame,
+                   text="Set\n'Ignore Run'\nFalse",
+                   command=lambda x=self:x.commandChangeFileSettings(lb.curselection(),
+                                                                     "ignoreRun",False),
+                   width=14,height=3)
+        stY=Button(bFrame,
+                   text="Set\n'Started DQM'\nTrue",
+                    command=lambda x=self:x.commandChangeFileSettings(lb.curselection(),
+                                                                      "startedDQM",True),
+                   width=14,height=3)
+        stN=Button(bFrame,
+                   text="Set\n'Started DQM'\nFalse",
+                   command=lambda x=self:x.commandChangeFileSettings(lb.curselection(),
+                                                                     "startedDQM",False),
+                   width=14,height=3)
+        fiY=Button(bFrame,
+                   text="Set\n'Finished DQM'\nTrue",
+                   command=lambda x=self:x.commandChangeFileSettings(lb.curselection(),
+                                                                     "finishedDQM",True),
+                   width=14,height=3)
+        fiN=Button(bFrame,
+                   text="Set\n'Finished DQM'\nFalse",
+                   command=lambda x=self:x.commandChangeFileSettings(lb.curselection(),
+                                                                     "finishedDQM",False),
+                   width=14,height=3)
+
+        # Grid buttons
+        igY.grid(row=0,column=0)
+        stY.grid(row=0,column=1)
+        fiY.grid(row=0,column=2)
+        igN.grid(row=1,column=0)
+        stN.grid(row=1,column=1)
+        fiN.grid(row=1,column=2)
+
+        return
+        
+    def commandChangeFileSettings(self,selected,var,value=True):
+        '''
+        Commands for changing DQM settings.
+        "selected" is the set of listbox indices that have been
+        highlighted by the user.
+        (self.listboxruns[int(i)] returns the associated run #, for
+         all i in selected.)
+        Allowed values for var:
+        "ignoreRun", "startedDQM", "finishedDQM"
+        '''
+        
+        for i in selected:
+
+            run=self.listboxruns[int(i)] # get run number from index
+
+            if (var=="ignoreRun"):
+                self.filesInDBS[run].ignoreRun=value
+            elif (var=="startedDQM"):
+                self.filesInDBS[run].startedDQM=value
+            elif (var=="finishedDQM"):
+                self.filesInDBS[run].finishedDQM=value
+        self.writePickle() # save to pickle file?  I think this is the sensible option (user can always change back)
+        return
+
+
+    def toggleAutoRunShift(self,event):
+        '''
+        This toggles the autoRunShift variable.
+        If autoRunShift is true, then the run entry
+        value will increment whenever a new run is found.
+        If not, the run entry value will remain the same.
+        '''
+
+        
+        self.autoRunShift=1-self.autoRunShift # toggle value
+        # Change entry box color if auto shifting is not enabled
+        if (self.autoRunShift==False):
+              self.lastFoundDBSEntry.configure(bg="yellow")
+        else:
+            self.lastFoundDBSEntry.configure(bg="white")
         return
 
 
