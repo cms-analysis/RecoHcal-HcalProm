@@ -114,7 +114,7 @@ class dbsAccessor:
         dbsAccessor tries to read its values from a cPickle file.
         If the file does not exist, values will be initialized as defaults.
         IMPORTANT -- this class uses Tkinter StringVar, etc. variables,
-        so this class won't properly initialize unless a Tk instance has
+        so this class will not properly initialize unless a Tk instance has
         been created first.
         '''
         
@@ -222,7 +222,7 @@ class dbsAccessor:
         Searches DBS for files matching specified criteria.
         Criteria is given by user-supplied "mytext" string.
         If no such string is provided, default is "find run
-        where file = <dbsAccessor default searchString> and
+        where dataset = <dbsAccessor default searchString> and
         run between <default begin run>-<default end run>"
         '''
 
@@ -410,7 +410,8 @@ class DQMDBSgui:
                                        variable=self.enableSCP,
                                        padx=10,
                                        command=self.toggleSCP)
-        #self.scpAutoButton.grid(row=0,column=mycol,sticky=E)
+        self.scpAutoButton.grid(row=0,column=mycol,sticky=E)
+
         #mycol=mycol+1
         #self.menubar.columnconfigure(mycol,weight=1)
         #self.scpLabel=Label(self.menubar,
@@ -441,7 +442,7 @@ class DQMDBSgui:
         self.copyLoc.configure(background=self.bg_alt,
                                foreground=self.bg,
                                activebackground=self.alt_active)
-        #self.copyLoc.grid(row=0,column=mycol,sticky=E)
+        self.copyLoc.grid(row=0,column=mycol,sticky=E)
                 
 
         # Make 'heartbeat' label that shows when auto-checking is on
@@ -1259,7 +1260,7 @@ class DQMDBSgui:
                 # (can later check for files within directory?)
                 # Check to see if the output exists
                 tempoutput="prompt_out_%i.root"%i
- 
+                
                 if not(os.path.isfile(os.path.join(self.basedir,tempoutput))):
                     print "Problem with Run # %i -- DQM started but did not finish!"%i
                     self.commentLabel.configure(text="Problem with Run # %i -- DQM started but did not finish!"%i)
@@ -1396,7 +1397,18 @@ class DQMDBSgui:
                 os.system("mv %s %s"%(newoutput,self.finalDir.get()))
                 self.commentLabel.configure(text = "moved file %s\n to directory %s"%(newoutput, self.finalDir.get()))
                 self.root.update()
-                
+
+        # Now move directory along with file
+        if (i<100000):
+            tempdirname="HcalPrompt_R0000%i"%i
+        else:
+            tempdirname="HcalPrompt_R000%i"%i
+        if not os.path.isdir(os.path.join(self.basedir,tempdirname)):
+            success=False
+        else:
+            if os.path.isdir(os.path.join(self.finalDir.get(),tempdirname)):
+                os.system("rm %s"%os.path.join(self.finalDir.get(),tempdirname))
+            os.system("mv %s %s"%(os.path.join(self.basedir,tempdirname),self.finalDir.get()))
         if self.debug:
             print "<CallDQMScript> Success = %s"%success
         return success
@@ -1483,7 +1495,7 @@ class DQMDBSgui:
 
             # For each run, create new accessor that will find files, datasets associated with the run
             x=dbsAccessor()
-            text="find file,dataset where file=%s and run=%i"%(self.myDBS.searchString.get(),r)
+            text="find file,dataset where dataset=%s and run=%i"%(self.myDBS.searchString.get(),r)
             x.searchDBS(mytext=text)
             
             files=string.split(x.searchResult,"\n")
@@ -1783,6 +1795,10 @@ class DQMDBSgui:
         text1="scp -r "
         text="scp -r "
         for i in movelist:
+            # Files/Dirs to be moved must have some version of "Prompt"
+            # in their name ("Prompt" or "prompt")
+            if string.find(i,"rompt")==-1:
+                continue
             text=text+"%s "%os.path.join(self.finalDir.get(),"copied_to_hcaldqm",i)
             text1=text1+"%s "%os.path.join(self.finalDir.get(),i)
         text=text+" hcalusc55@cmshcal01:/hcaldqm/global_auto\n\n"
