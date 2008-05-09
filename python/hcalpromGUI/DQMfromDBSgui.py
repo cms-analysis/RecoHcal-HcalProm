@@ -13,7 +13,7 @@
 # GUI to automatically grab new runs from DBS
 # and run HCAL DQM on any newly-found runs
 #
-# New version allows GUI use by non-HCAL DQMs
+# Modified version allows GUI use by non-HCAL DQMs
 #
 #################################################
 
@@ -35,6 +35,7 @@ except:
     print "(If you are running from FNAL, this is a known problem --\n"
     print " Tkinter isn't available in the SL4 release of python for some reason."
     print "This is being investigated.)"
+    print "\n\n(If you're at CERN, you can try setting up your environment and running the GUI again.)"
     sys.exit()
 
 import tkMessageBox # for displaying warning messages
@@ -148,7 +149,7 @@ class dbsAccessor:
         self.port.set(443)
         self.dbsInst.set("cms_dbs_prod_global")
         self.searchString.set("*/GlobalCruzet1-A/*-T0PromptReco-*/RECO*")
-        # Assume dataset name has format */GlobalCruzet1-A/*-T0PromptReco-*/RECO*
+        #Assume dataset name has format */GlobalCruzet1-A/*-T0PromptReco-*/RECO*
         self.page.set(0)
         self.limit.set(10000)
         self.xml.set(False)
@@ -282,6 +283,7 @@ class DQMDBSgui:
             print "Have you checked out the appropriate package in your release area?"
             sys.exit()
 
+        os.chdir(self.basedir)  # put all output into basedir
 
         self.debug=debug
         
@@ -398,25 +400,48 @@ class DQMDBSgui:
         # outside local areas
         mycol=mycol+1
         self.menubar.columnconfigure(mycol,weight=1)
-        Label(self.menubar,text="Copy DQM to:",
-              fg=self.fg,bg=self.bg).grid(row=0,
-                                          column=mycol,
-                                          sticky=E)
+        self.enableSCP=BooleanVar()
+        self.enableSCP.set(True)
+        self.scpAutoButton=Checkbutton(self.menubar,
+                                       bg=self.bg,
+                                       fg=self.fg,
+                                       text="scp copying enabled",
+                                       activebackground=self.alt_active,
+                                       variable=self.enableSCP,
+                                       padx=10,
+                                       command=self.toggleSCP)
+        #self.scpAutoButton.grid(row=0,column=mycol,sticky=E)
+        #mycol=mycol+1
+        #self.menubar.columnconfigure(mycol,weight=1)
+        #self.scpLabel=Label(self.menubar,
+        #                    #text="Copy DQM to:",
+        #                    text="scp copying enabled ",
+        #                    fg=self.fg,bg=self.bg).grid(row=0,
+        #                                                column=mycol,
+        #                                                sticky=E)
         mycol=mycol+1
-        self.copyLocVar=StringVar()
-        self.copyLocVar.set("Local area")
+        # Add in variable copy abilities later
+        #self.copyLocVar=StringVar()
+        #self.copyLocVar.set("Local area")
         # List possible copy destinations
         # (not yet implemented, until we can figure out how to
         #  auto scp)
-        self.copyLoc=OptionMenu(self.menubar,self.copyLocVar,
-                                "Local area"
-                                #"cmshcal01"
-                                )
-        self.copyLoc.configure(background=self.bg,
-                               foreground=self.fg,
-                               activebackground=self.alt_active)
+        #self.copyLoc=OptionMenu(self.menubar,self.copyLocVar,
+        #                        "Local area"
+        #                        #"cmshcal01"
+        #                        )
+        #self.copyLoc.configure(background=self.bg,
+        #                       foreground=self.fg,
+        #                       activebackground=self.alt_active)
 
-        self.copyLoc.grid(row=0,column=mycol,sticky=E)
+        # for now, make button to copy files with scp
+        self.copyLoc=Button(self.menubar,
+                            text="Copy Output!",
+                            command=lambda x=self:x.tempSCP())
+        self.copyLoc.configure(background=self.bg_alt,
+                               foreground=self.bg,
+                               activebackground=self.alt_active)
+        #self.copyLoc.grid(row=0,column=mycol,sticky=E)
                 
 
         # Make 'heartbeat' label that shows when auto-checking is on
@@ -834,7 +859,11 @@ class DQMDBSgui:
         
         while (self.Automated.get()):
             self.autoRunning=True
-            time.sleep(60)
+            for xx in range(0,60):
+                time.sleep(1)
+                if not self.Automated.get():
+                    break
+
             # print self.dbsAutoVar.get(), self.dqmAutoVar.get()
             # Increment counters once per minute
             self.dbsAutoCounter=self.dbsAutoCounter+1
@@ -857,6 +886,8 @@ class DQMDBSgui:
 
             # repeat for DQM checking
             if (self.dqmAutoCounter >= self.dqmAutoUpdateTime):
+                # Remind user to scp completed files
+                self.tempSCP()
                 # If dqmAutoVar is off, reset counter
                 if (self.dqmAutoVar.get()==False):
                     self.dqmAutoCounter=0
@@ -932,8 +963,8 @@ class DQMDBSgui:
         except:
             self.dqmvaluewin=Toplevel()
 
-        self.dqmvaluewin.title("Edit DQM parameters")
         self.dqmvaluewin.geometry('+400+300')
+        self.dqmvaluewin.title("Change DQM Values")
         myrow=0
 
         # List of variables to be shown in window.
@@ -951,15 +982,25 @@ class DQMDBSgui:
             Label(self.dqmvaluewin,
                   width=40,
                   text="%s"%i).grid(row=myrow,column=0)
-            Entry(self.dqmvaluewin,
-                  width=80,
-                  textvar=myvars[i]).grid(row=myrow,column=1)
+            tempEnt=Entry(self.dqmvaluewin,
+                          width=80,
+                          textvar=myvars[i])
+            tempEnt.grid(row=myrow,column=1)
+            if i=="  Final DQM Save Directory = " or i=="  .cfg file to run for each DQM = ":
+                tempEnt.bind("<Return>",(lambda event:self.checkExistence(myvars[i])))
             myrow=myrow+1
-        Button(self.dqmvaluewin,text="Save as new default\n DQM values",
-               command = lambda x=self:x.writeDefaultDQMToPickle()).grid(row=myrow,column=0)
-        Button(self.dqmvaluewin,text="Restore default DQM values",
-               command = lambda x=self:x.getDefaultDQMFromPickle()).grid(row=myrow,
+        newFrame=Frame(self.dqmvaluewin)
+        newFrame.grid(row=myrow,column=0,columnspan=2,sticky=EW)
+        newFrame.columnconfigure(0,weight=1)
+        newFrame.columnconfigure(1,weight=1)
+        newFrame.columnconfigure(2,weight=1)
+        Button(newFrame,text="Save as new default\n DQM values",
+               command = lambda x=self:x.writeDefaultDQMToPickle()).grid(row=0,column=0)
+        Button(newFrame,text="Restore default DQM values",
+               command = lambda x=self:x.getDefaultDQMFromPickle()).grid(row=0,
                                                                          column=1)
+        Button(newFrame,text="Exit",
+               command = lambda x=self.dqmvaluewin:x.destroy()).grid(row=0,column=2)
         return
 
 
@@ -1163,6 +1204,8 @@ class DQMDBSgui:
         # Get list of runs -- whenever we change info, we write to pickle file
         # Therefore, read from the file to get the latest & greatest
         self.readPickle() 
+
+        if (self.debug): print "<runDQM>  Read pickle file"
         if len(self.filesInDBS.keys())==0:
             self.commentLabel.configure(text = "Sorry, no file info available.\nTry the 'Check DBS for Runs' button first.")
             self.dqmProgress.configure(text="No Run Info available",
@@ -1186,6 +1229,7 @@ class DQMDBSgui:
         mycount=0
         goodcount=0
         for i in x:
+            if self.debug:  print "<runDQM> Checking run #%i"%i
             self.commentLabel.configure(text="Running DQM on run #%i"%i)
             self.dqmProgress.configure(text="Running DQM on run #%i"%i,
                                        bg=self.bg_alt)
@@ -1193,6 +1237,7 @@ class DQMDBSgui:
             # Allow user to break loop via setting the runningDQM variable
             # (change to BooleanVar?)
             if (self.runningDQM==False):
+                if self.debug:  print "<runDQM> runningDQM bool = False"
                 self.dqmButton.configure(state=ACTIVE)
                 break
             # ignore files if necessary
@@ -1213,10 +1258,8 @@ class DQMDBSgui:
                 # DQM not finished; look to see if directory made for it
                 # (can later check for files within directory?)
                 # Check to see if the output exists
-
-                # Check for output file from input
                 tempoutput="prompt_out_%i.root"%i
-                
+ 
                 if not(os.path.isfile(os.path.join(self.basedir,tempoutput))):
                     print "Problem with Run # %i -- DQM started but did not finish!"%i
                     self.commentLabel.configure(text="Problem with Run # %i -- DQM started but did not finish!"%i)
@@ -1231,6 +1274,7 @@ class DQMDBSgui:
                 # nothing started yet; begin DQM
 
                 # First check that cmsRun is available
+                if (self.debug): print "<runDQM> looking for cmsRun"
                 checkcmsRun=os.popen3("which cmsRun")
                 # popen3 returns 3 streams -- in, out, and stderr
                 # check that stderr is empty
@@ -1244,12 +1288,14 @@ class DQMDBSgui:
                 if (self.callDQMscript(i)):
                     self.filesInDBS[i].finishedDQM=True
                     goodcount=goodcount+1
-
-
+                
+            if (self.debug):
+                print "<runDQM> made it through callDQMscript"
 
             # Every 20 minutes or so, check for updates to DBS files
             
             if (time.time()-mytime)>20*60:
+                if (self.debug): print "<runDQM> getting time info"
                 mytime=time.time()
                 self.checkDBS()
                 newfiles=False
@@ -1266,6 +1312,8 @@ class DQMDBSgui:
                 else:
                     self.runningDQM=True
 
+        if (self.debug):
+            print "<runDQM> Hi there!"
         self.runningDQM=False
         self.writePickle()
 
@@ -1276,7 +1324,10 @@ class DQMDBSgui:
             self.dqmProgress.configure(text="Ran DQM on %i/%i runs"%(goodcount,len(x)))
         self.dqmStatus.configure(text="%s"%time.strftime("%d %b %Y at %H:%M:%S",time.localtime()))
         self.commentLabel.configure(text="Finished running DQM:\n%i out of %i runs successfully processed"%(goodcount,len(x)))
+        time.sleep(5)
+        self.tempSCP() # Call scp copying routine once dqm has finished
         self.dqmButton.configure(state=ACTIVE)
+        
         self.root.update()
         return
                 
@@ -1324,36 +1375,27 @@ class DQMDBSgui:
         os.system("cmsRun %s"%self.cfgFileName.get())
         
 
-        
         success=False
         time.sleep(2)
 
         tempoutput="prompt_out.root"
         # make fancier success requirement later -- for now, just check that directory exists
         if (self.debug):
-            print "%s exists? %i"%(os.path.join(self.basedir,tempoutput),
-                                   os.path.isdir(os.path.join(self.basedir,tempoutput)))
+            print "%s exists? %i"%(os.path.join(self.basedir,x),os.path.isdir(os.path.join(self.basedir,x)))
 
         if os.path.isfile(os.path.join(self.basedir,tempoutput)):
             success=True
+            # Move prompt_out.root to file that lists its run number
             newoutput=("prompt_out_%i.root"%i)
             newoutput=os.path.join(self.basedir,newoutput)
             os.system("mv %s %s"%(os.path.join(self.basedir,tempoutput),newoutput))
-            # If final destination is in local area, and
-            # if final dir differs from base dir, move to that directory
-            if (self.copyLocVar.get()=="Local area" and
-                 self.finalDir.get()<>self.basedir):
+            if (self.finalDir.get()<>self.basedir):
                 os.system("mv %s %s"%(newoutput,self.finalDir.get()))
-                self.commentLabel.configure(text = "moved file %s\n to directory %s"%(newoutput,
-                                                                                      self.finalDir.get()))
+                self.commentLabel.configure(text = "moved file %s\n to directory %s"%(newoutput, self.finalDir.get()))
                 self.root.update()
-                time.sleep(1)
-
-            # This needs to be updated once we figure out how to auto scp
-            elif (self.copyLocVar.get()=="cmshcal01"):
-                #os.system("scp %s ..."%x)  # update with end location name!
-                print "cmshcal01 copying not yet implemented!"
                 
+        if self.debug:
+            print "<CallDQMScript> Success = %s"%success
         return success
 
 
@@ -1438,7 +1480,7 @@ class DQMDBSgui:
 
             # For each run, create new accessor that will find files, datasets associated with the run
             x=dbsAccessor()
-            text="find file,dataset where dataset=%s and run=%i"%(self.myDBS.searchString.get(),r)
+            text="find file,dataset where file=%s and run=%i"%(self.myDBS.searchString.get(),r)
             x.searchDBS(mytext=text)
             
             files=string.split(x.searchResult,"\n")
@@ -1664,6 +1706,19 @@ class DQMDBSgui:
         return
 
 
+    def toggleSCP(self):
+        ''' swaps SCP variable.  If SCP variable is off, no scp copying will take place.'''
+
+        return # SCP not enabled yet for hcal prompt analysis
+
+        if (self.enableSCP.get()==0):
+            self.scpAutoButton.configure(text="scp copying disabled")
+            self.copyLoc.configure(state=DISABLED)
+        else:
+            self.scpAutoButton.configure(text="scp copying enabled")
+            self.copyLoc.configure(state=NORMAL)
+        return
+
     def toggleAutoRunShift(self,event):
         '''
         This toggles the autoRunShift variable.
@@ -1682,11 +1737,85 @@ class DQMDBSgui:
         return
 
 
+    def checkExistence(self,obj):
+        #print obj.get()
+        exists=True
+        if not os.path.exists(obj.get()):
+            self.commentLabel.configure(text="ERROR!\n Object '%s' does not exist!"%obj.get())
+            self.root.update()
+            obj.set("ERROR -- FILE/DIR DOES NOT EXIST")
+            exists=False
+        return exists
 
+    def tempSCP(self):
+        '''
+        Temporary method for running scp from local final directory
+        to hcalusc55@cmshcal01:hcaldqm/global_auto/
+        Jeff
+        '''
+
+        
+        if not (self.enableSCP.get()):
+            self.commentLabel.configure(text="scp copying is not currently enabled.\n(Check button in the middle of the menu bar)")
+            self.root.update()
+            return
+        
+        if not (os.path.exists(self.finalDir.get())):
+            self.commentLabel.configure(text="ERROR -- directory '%s' DOES NOT EXIST!!\nEdit the Final DQM Save Directory in DQM options!"%self.finalDir.get())
+            return
+
+        self.commentLabel.configure(text="Trying to scp results to cmshcal01")
+        self.root.update()
+        
+        # make directory for files/dirs that have already been copied.
+        if not os.path.isdir(os.path.join(self.finalDir.get(),"copied_to_hcaldqm")):
+            os.mkdir(os.path.join(self.finalDir.get(),"copied_to_hcaldqm"))
+
+        movelist=os.listdir(self.finalDir.get())
+        movelist.remove("copied_to_hcaldqm")
+        if len(movelist)==0:
+            self.commentLabel.configure(text="There are no files in %s\n to be copied to cmshcal01!"%self.finalDir.get())
+            self.root.update()
+            return
+        text1="scp -r "
+        text="scp -r "
+        for i in movelist:
+            text=text+"%s "%os.path.join(self.finalDir.get(),"copied_to_hcaldqm",i)
+            text1=text1+"%s "%os.path.join(self.finalDir.get(),i)
+        text=text+" hcalusc55@cmshcal01:/hcaldqm/global_auto\n\n"
+        text1=text1+" hcalusc55@cmshcal01:/hcaldqm/global_auto\n\n"
+
+        
+        #if at cms (specifically, on lxpus):
+        #if os.getenv("USER")=="cchcal":
+        compname=os.uname()[1]
+
+        if string.find(compname,"lxplus")>-1 and string.find(compname,".cern.ch")>-1:
+            zzz=os.system(text1)
+            print text1
+            #print zzz
+            self.commentLabel.configure(text = "FINISHED!\nPerformed scp of files to cmshcal01!")
+            self.root.update()
+        
+        else:  # not at cern
+            helpfunctions.Helpwin(text,usetext=1,title="Cut and paste this command into your lxplus window now!" )
+            self.commentLabel.configure(text="Cannot auto-scp to cmshcal from your machine!\nFollow instructions in the help window!")
+            self.root.update()
+            
+        # move files to the copied_to_hcaldqm subdirectory (so they won't be scp'd again)
+        for i in movelist:
+            cmd="mv %s %s\n"%(os.path.join(self.finalDir.get(),i),
+                              os.path.join(self.finalDir.get(),"copied_to_hcaldqm",i))
+            os.system(cmd)
+
+
+
+
+        return
 
 ############################################
 
 if __name__=="__main__":
 
-    mygui=DQMDBSgui()  # set up gui
+    mygui=DQMDBSgui(debug=0)  # set up gui
     mygui.root.mainloop() # run main loop
