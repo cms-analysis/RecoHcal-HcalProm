@@ -1224,9 +1224,9 @@ class DQMDBSgui:
 
         # If runs found, sort by run number (largest number first)
         if len(self.filesInDBS.keys()):
-            x=self.filesInDBS.keys()
-            x.sort()
-            x.reverse()
+            foundruns=self.filesInDBS.keys()
+            foundruns.sort()
+            foundruns.reverse()
         else:
             self.commentLabel.configure(text="No unprocessed runs found")
             self.root.update()
@@ -1237,7 +1237,9 @@ class DQMDBSgui:
 
         mycount=0
         goodcount=0
-        for i in x:
+
+        newfiles=False # boolean to determine whether new files have been added to DBS since start of DQM job
+        for i in foundruns:
             if self.debug:  print "<runDQM> Checking run #%i"%i
             self.commentLabel.configure(text="Running DQM on run #%i"%i)
             self.dqmProgress.configure(text="Running DQM on run #%i"%i,
@@ -1303,39 +1305,38 @@ class DQMDBSgui:
 
             # Every 20 minutes or so, check for updates to DBS files
 
-            # Commented this out on 9 May 2008 -- updates can (and should?)
-            # be handled by user and auto-update button
-            if (1<0):
-            #if (time.time()-mytime)>20*60:
+            
+            #if (1<0):
+            if (time.time()-mytime)>20*60:
                 if (self.debug): print "<runDQM> getting time info"
                 mytime=time.time()
                 self.checkDBS()
-                newfiles=False
-                if len(self.filesInDBS.keys())<>x:
+                if len(self.filesInDBS.keys())<>len(foundruns):
                     self.commentLabel.configure(text="DBS files have been added since last call to DQM.\n  Restarting DQM.")
                     self.root.update()
                     newfiles=True
                     break
-                if (newFiles):
-                    # Save current progress
-                    self.writePickle()
-                    self.dqmButton.configure(state=ACTIVE)
-                    self.runDQM(self)
-                else:
-                    self.runningDQM=True
+        if (newFiles):
+            # Save current progress
+            self.writePickle()
+            self.dqmButton.configure(state=ACTIVE)
+            self.runDQM(self)
+            return # if need to run runDQM again, do so, but then return out of this function call without performing the remaining tasks in the function.
+        else:
+            self.runningDQM=True
 
         if (self.debug):
             print "<runDQM> Hi there!"
         self.runningDQM=False
         self.writePickle()
 
-        if (goodcount==len(x)):
+        if (goodcount==len(foundruns)):
             self.dqmProgress.configure(text="Successfully finished running DQM",
                                        bg="black")
         else:
-            self.dqmProgress.configure(text="Ran DQM on %i/%i runs"%(goodcount,len(x)))
+            self.dqmProgress.configure(text="Ran DQM on %i/%i runs"%(goodcount,len(foundruns)))
         self.dqmStatus.configure(text="%s"%time.strftime("%d %b %Y at %H:%M:%S",time.localtime()))
-        self.commentLabel.configure(text="Finished running DQM:\n%i out of %i runs successfully processed"%(goodcount,len(x)))
+        self.commentLabel.configure(text="Finished running DQM:\n%i out of %i runs successfully processed"%(goodcount,len(foundruns)))
         time.sleep(5)
         self.tempSCP() # Call scp copying routine once dqm has finished
         self.dqmButton.configure(state=ACTIVE)
