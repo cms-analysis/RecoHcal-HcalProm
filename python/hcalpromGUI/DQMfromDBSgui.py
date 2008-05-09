@@ -1314,7 +1314,7 @@ class DQMDBSgui:
                 if len(self.filesInDBS.keys())<>len(foundruns):
                     self.commentLabel.configure(text="DBS files have been added since last call to DQM.\n  Restarting DQM.")
                     self.root.update()
-                    newfiles=True
+                    newFiles=True
                     break
         if (newFiles):
             # Save current progress
@@ -1639,10 +1639,13 @@ class DQMDBSgui:
             self.changevaluewin=Toplevel()
         self.changevaluewin.geometry('+800+20')
         self.changevaluewin.title("Change status of files")
+        self.changevaluewin.rowconfigure(0,weight=1)
         
         # Add list of runs as a list box with attached scrollbar
         scrollwin=Frame(self.changevaluewin)
-        scrollwin.grid(row=0,column=0)
+        scrollwin.grid(row=0,column=0,sticky=NS)
+        scrollwin.rowconfigure(1,weight=1)
+
         myrow=0
         Label(scrollwin,
               text="Be sure to check Status menu after your changes are made").grid(row=myrow,column=0)
@@ -1664,7 +1667,7 @@ class DQMDBSgui:
 
         # Add buttons for changing DQM values
         myrow=myrow+1
-        self.changevaluewin.rowconfigure(myrow,weight=1)
+        #self.changevaluewin.rowconfigure(myrow,weight=1)
         bFrame=Frame(self.changevaluewin)
         bFrame.grid(row=1,column=0)
         igY=Button(bFrame,
