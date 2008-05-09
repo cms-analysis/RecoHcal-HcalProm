@@ -1238,7 +1238,7 @@ class DQMDBSgui:
         mycount=0
         goodcount=0
 
-        newfiles=False # boolean to determine whether new files have been added to DBS since start of DQM job
+        newFiles=False # boolean to determine whether new files have been added to DBS since start of DQM job
         for i in foundruns:
             if self.debug:  print "<runDQM> Checking run #%i"%i
             self.commentLabel.configure(text="Running DQM on run #%i"%i)
@@ -1416,7 +1416,7 @@ class DQMDBSgui:
             success=False
         else:
             if os.path.isdir(os.path.join(self.finalDir.get(),tempdirname)):
-                os.system("rm %s"%os.path.join(self.finalDir.get(),tempdirname))
+                os.system("rm -rf %s"%os.path.join(self.finalDir.get(),tempdirname))
             os.system("mv %s %s"%(os.path.join(self.basedir,tempdirname),self.finalDir.get()))
         if self.debug:
             print "<CallDQMScript> Success = %s"%success
@@ -1821,7 +1821,12 @@ class DQMDBSgui:
         #if os.getenv("USER")=="cchcal":
         compname=os.uname()[1]
 
-        if string.find(compname,"lxplus")>-1 and string.find(compname,".cern.ch")>-1:
+        #print "UNAME = ",compname
+        #print "LXPLUS? ",string.find(compname,"lxplus")
+        #print "LXb? ",string.find(compname,"lxb")
+        #print "CERN? ",string.find(compname,".cern.ch")
+
+        if (string.find(compname,"lxplus")>-1 or string.find(compname,"lxb" )>-1) and string.find(compname,".cern.ch")>-1:
             zzz=os.system(text1)
             print text1
             #print zzz
@@ -1835,6 +1840,8 @@ class DQMDBSgui:
             
         # move files to the copied_to_hcaldqm subdirectory (so they won't be scp'd again)
         for i in movelist:
+            if os.path.isdir(os.path.join(self.finalDir.get(),"copied_to_hcaldqm",i)):
+                os.system("rm -rf %s"%os.path.join(self.finalDir.get(),"copied_to_hcaldqm",i))
             cmd="mv %s %s\n"%(os.path.join(self.finalDir.get(),i),
                               os.path.join(self.finalDir.get(),"copied_to_hcaldqm",i))
             os.system(cmd)
