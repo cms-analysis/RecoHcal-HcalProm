@@ -411,6 +411,9 @@ class DQMDBSgui:
                                        padx=10,
                                        command=self.toggleSCP)
         self.scpAutoButton.grid(row=0,column=mycol,sticky=E)
+                
+
+
 
         #mycol=mycol+1
         #self.menubar.columnconfigure(mycol,weight=1)
@@ -443,6 +446,11 @@ class DQMDBSgui:
                                foreground=self.bg,
                                activebackground=self.alt_active)
         self.copyLoc.grid(row=0,column=mycol,sticky=E)
+
+        if os.getenv("USER")<>"cchcal":
+            self.enableSCP.set(False)
+            self.scpAutoButton.configure(text="scp copying disabled")
+            self.copyLoc.configure(state=DISABLED)
                 
 
         # Make 'heartbeat' label that shows when auto-checking is on
@@ -1411,6 +1419,9 @@ class DQMDBSgui:
             os.system("mv %s %s"%(os.path.join(self.basedir,tempdirname),self.finalDir.get()))
         if self.debug:
             print "<CallDQMScript> Success = %s"%success
+        time.sleep(3)
+        # if (success):  # ? only call if both .root and html dir produced?
+        self.tempSCP()
         return success
 
 
@@ -1724,7 +1735,7 @@ class DQMDBSgui:
     def toggleSCP(self):
         ''' swaps SCP variable.  If SCP variable is off, no scp copying will take place.'''
 
-        return # SCP not enabled yet for hcal prompt analysis
+        #return # SCP not enabled yet for hcal prompt analysis
 
         if (self.enableSCP.get()==0):
             self.scpAutoButton.configure(text="scp copying disabled")
