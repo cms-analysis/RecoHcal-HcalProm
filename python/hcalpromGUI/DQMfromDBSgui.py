@@ -1765,7 +1765,7 @@ class DQMDBSgui:
     def tempSCP(self):
         '''
         Temporary method for running scp from local final directory
-        to hcalusc55@cmshcal01:hcaldqm/global_auto/
+        to hcalusc55@cmshcal01:hcaldqm/global_auto/hcalprompt
         Jeff
         '''
 
@@ -1801,8 +1801,8 @@ class DQMDBSgui:
                 continue
             text=text+"%s "%os.path.join(self.finalDir.get(),"copied_to_hcaldqm",i)
             text1=text1+"%s "%os.path.join(self.finalDir.get(),i)
-        text=text+" hcalusc55@cmshcal01:/hcaldqm/global_auto\n\n"
-        text1=text1+" hcalusc55@cmshcal01:/hcaldqm/global_auto\n\n"
+        text=text+" hcalusc55@cmshcal01:/hcaldqm/global_auto/hcalprompt\n\n"
+        text1=text1+" hcalusc55@cmshcal01:/hcaldqm/global_auto/hcalprompt\n\n"
 
         
         #if at cms (specifically, on lxpus):
