@@ -1293,8 +1293,11 @@ class DQMDBSgui:
                 print "<runDQM> made it through callDQMscript"
 
             # Every 20 minutes or so, check for updates to DBS files
-            
-            if (time.time()-mytime)>20*60:
+
+            # Commented this out on 9 May 2008 -- updates can (and should?)
+            # be handled by user and auto-update button
+            if (1<0):
+            #if (time.time()-mytime)>20*60:
                 if (self.debug): print "<runDQM> getting time info"
                 mytime=time.time()
                 self.checkDBS()
